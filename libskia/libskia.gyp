@@ -199,71 +199,91 @@
 			],
 		},
 
-		{
-			'target_name': 'libskia_opt_arm',
-			'type': 'static_library',
+         {
+            'target_name': 'libskia_opt_arm',
+            'type': 'static_library',
 
-			'toolsets': ['host', 'target'],
-
-			'include_dirs':
-			[
-				'<@(skia_include_dirs)',
-			],
-
-			'defines':
-			[
-				'<@(skia_defines)',
-			],
-
-			'variables':
-			{
-				'silence_warnings': 1,
+			'xcode_settings': {
+ 			 	# When building x86_64, do NOT compile ARM NEON sources even if they appear in 'sources'.
+				'EXCLUDED_SOURCE_FILE_NAMES[arch=x86_64]': [
+					'SkBitmapProcState_arm_neon.cpp',
+					'SkBitmapProcState_matrixProcs_neon.cpp',
+					'SkBlitMask_opts_arm_neon.cpp',
+					'SkBlitRow_opts_arm_neon.cpp',
+				],
 			},
 
-			'sources':
-			[
-				'src/opts/opts_dummy.cpp',
-			],
+            # IMPORTANT: target-only. Host toolset on Apple Silicon is arm64 and
+            # can incorrectly pull NEON sources into an x86_64 build graph.
+            'toolsets': ['target'],
 
-			'target_conditions':
-			[
-				[
-					'toolset_arch in ("armv7", "arm64", "armv7 arm64")',
-					{
-						'sources':
-						[
-                            '<@(opts_arm_srcs)',
-                            '<@(opts_armv7_arm64_srcs)',
-                            '<@(opts_crc32_srcs)',
-						],
 
-						'target_conditions':
-						[
-							[
-								'toolset_os == "android" and toolset_arch == "armv7"',
-								{
-									'cflags':
-									[
-										# Needed in order to enable NEON instruction support
-										'-mfpu=neon',
-									],
-								},
-							],
-						],
-					},
-				],
-                [
-                    'toolset_arch in ("armv6", "armv6hf")',
-                    {
-                        'sources':
+
+            'include_dirs':
+            [
+                '<@(skia_include_dirs)',
+            ],
+
+            'defines':
+            [
+                '<@(skia_defines)',
+            ],
+
+            'variables':
+            {
+                'silence_warnings': 1,
+            },
+
+            # Default: build a stub so the archive exists on non-ARM architectures.
+            'sources':
+            [
+                'src/opts/SkOpts_arm_stub.cpp',
+            ],
+
+            'conditions':
+            [
+                # On ARM targets, build the real optimized sources instead of the stub.
+                ['target_arch in ("armv7", "arm64")', {
+                    'sources!':
+                    [
+                        'src/opts/SkOpts_arm_stub.cpp',
+                    ],
+                    'sources':
+                    [
+                        '<@(opts_arm_srcs)',
+                        '<@(opts_armv7_arm64_srcs)',
+                        '<@(opts_crc32_srcs)',
+                    ],
+
+                    'conditions':
+                    [
                         [
-                            '<@(opts_arm_srcs)',
-                            '<@(opts_crc32_srcs)',
+                            'OS == "android" and target_arch == "armv7"',
+                            {
+                                'cflags':
+                                [
+                                    # Needed in order to enable NEON instruction support
+                                    '-mfpu=neon',
+                                ],
+                            },
                         ],
-                    },
-                ],
-			],
-		},
+                    ],
+                }],
+
+                ['target_arch in ("armv6", "armv6hf")', {
+                    'sources!':
+                    [
+                        'src/opts/SkOpts_arm_stub.cpp',
+                    ],
+                    'sources':
+                    [
+                        '<@(opts_arm_srcs)',
+                        '<@(opts_crc32_srcs)',
+                    ],
+                }],
+            ],
+        },
+
 
 		{
 			'target_name': 'libskia_opt_sse2',
