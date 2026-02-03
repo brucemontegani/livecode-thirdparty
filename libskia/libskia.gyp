@@ -152,6 +152,33 @@
 
 	'targets':
 	[
+
+		{
+			'target_name': 'libskia_gyp_dump_vars',
+			'type': 'none',
+			'toolsets': ['host', 'target'],
+			'actions': [
+				{
+				'action_name': 'dump_gyp_vars',
+				'inputs': [],
+				'outputs': [
+					'<(INTERMEDIATE_DIR)/gyp-vars-<(_toolset)>.txt',
+				],
+				'action': [
+					'bash', '-lc',
+					'cat > "<@(_outputs)" <<EOF\n'
+					'toolset = <(_toolset)\n'
+					# 'toolset_os = <(toolset_os)\n'
+					# 'toolset_arch = <(toolset_arch)\n'
+					'OS = <(OS)\n'
+					'target_arch = <(target_arch)\n'
+					'host_os = <(host_os)\n'
+					'EOF\n'
+				],
+				},
+			],
+		},
+
 		# We define separate targets for each set of optimizations as they need
 		# specific compiler flags which must not use generally.
 		#
@@ -314,7 +341,7 @@
 			'target_conditions':
 			[
 				[
-					'toolset_arch in ("i386", "x86", "x64", "x86_64", "i386 x86_64")',
+					'target_arch != "arm64"',
 					{
 						'sources':
 						[
@@ -373,7 +400,7 @@
 			'target_conditions':
 			[
 				[
-					'toolset_arch in ("i386", "x86", "x64", "x86_64", "i386 x86_64")',
+					'target_arch != "arm64"',
 					{
 						'sources':
 						[
@@ -432,31 +459,25 @@
 			'target_conditions':
 			[
 				[
-					'toolset_arch in ("i386", "x86", "x64", "x86_64", "i386 x86_64")',
+					'target_arch != "arm64"',
 					{
 						'sources':
 						[
-							'<@(opts_sse41_srcs)',
+							'src/opts/SkOpts_sse41.cpp',
 						],
-                        
-                        'target_conditions':
-                        [
-                            [
-                                'toolset_os == "win"',
-                                {
-                                    'defines':
-                                    [
-                                        'SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSE41',
-                                    ],
-                                },
-                                {
-                                    'cflags':
-                                    [
-                                        '-msse4.1',
-                                    ],
-                                },
-                            ],
-                        ],
+
+						'target_conditions':
+						[
+							[
+								'toolset_os == "win"',
+								{
+									'defines': [ 'SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSE41' ],
+								},
+								{
+									'cflags': [ '-msse4.1' ],
+								},
+							],
+						],
 					},
 				],
 			],
@@ -492,7 +513,7 @@
 			'target_conditions':
 			[
 				[
-					'toolset_arch in ("i386", "x86", "x64", "x86_64", "i386 x86_64")',
+					'target_arch != "arm64"',
 					{
 						'sources':
 						[
@@ -551,7 +572,7 @@
 			'target_conditions':
 			[
 				[
-					'toolset_arch in ("i386", "x86", "x64", "x86_64", "i386 x86_64")',
+					'target_arch != "arm64"',
 					{
 						'sources':
 						[
@@ -610,7 +631,7 @@
 			'target_conditions':
 			[
 				[
-					'toolset_arch in ("i386", "x86", "x64", "x86_64", "i386 x86_64")',
+					'target_arch != "arm64"',
 					{
 						'sources':
 						[

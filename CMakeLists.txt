@@ -50,6 +50,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libpng/src")
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libpng/include>
     )
     target_link_libraries(libpng PRIVATE libz)
+    # Disable ARM NEON optimizations - source files for these are not present
+    target_compile_definitions(libpng PRIVATE PNG_ARM_NEON_OPT=0)
     openxtalk_add_thirdparty_library(libpng)
 endif()
 
@@ -103,25 +105,51 @@ if(EXISTS "${OPENXTALK_PREBUILT_DIR}/lib/mac/libffi.a" AND APPLE AND NOT IOS)
     endif()
 endif()
 
-# If not found, try system libffi (common on arm64 macOS via Homebrew)
+# If not found, try system libffi
 if(NOT LIBFFI_FOUND)
-    find_library(SYSTEM_FFI_LIBRARY ffi PATHS /opt/homebrew/lib /usr/local/lib /usr/lib)
-    find_path(SYSTEM_FFI_INCLUDE ffi.h PATHS /opt/homebrew/include /usr/local/include /usr/include)
-    if(SYSTEM_FFI_LIBRARY AND SYSTEM_FFI_INCLUDE)
-        add_library(libffi STATIC IMPORTED GLOBAL)
-        set_target_properties(libffi PROPERTIES
-            IMPORTED_LOCATION "${SYSTEM_FFI_LIBRARY}"
-        )
-        target_include_directories(libffi INTERFACE "${SYSTEM_FFI_INCLUDE}")
-        target_compile_definitions(libffi INTERFACE FFI_BUILDING)
-        set(LIBFFI_FOUND TRUE)
-        message(STATUS "libffi: using system library at ${SYSTEM_FFI_LIBRARY}")
+    # On macOS, prefer the system libffi which is properly built for all architectures
+    if(APPLE)
+        # Use the SDK's libffi
+        find_library(SYSTEM_FFI_LIBRARY ffi)
+        # The include path needs to be the directory containing ffi.h directly
+        # System libffi headers are in .../usr/include/ffi/ffi.h
+        find_path(SYSTEM_FFI_INCLUDE_BASE ffi/ffi.h)
+        if(SYSTEM_FFI_INCLUDE_BASE)
+            set(SYSTEM_FFI_INCLUDE "${SYSTEM_FFI_INCLUDE_BASE}/ffi")
+        endif()
+        if(SYSTEM_FFI_LIBRARY)
+            add_library(libffi INTERFACE)
+            target_link_libraries(libffi INTERFACE "${SYSTEM_FFI_LIBRARY}")
+            if(SYSTEM_FFI_INCLUDE)
+                target_include_directories(libffi INTERFACE "${SYSTEM_FFI_INCLUDE}")
+                message(STATUS "libffi include: ${SYSTEM_FFI_INCLUDE}")
+            endif()
+            target_compile_definitions(libffi INTERFACE FFI_BUILDING)
+            set(LIBFFI_FOUND TRUE)
+            message(STATUS "libffi: using system library at ${SYSTEM_FFI_LIBRARY}")
+        endif()
+    else()
+        find_library(SYSTEM_FFI_LIBRARY ffi PATHS /opt/homebrew/lib /usr/local/lib /usr/lib)
+        find_path(SYSTEM_FFI_INCLUDE ffi.h PATHS /opt/homebrew/include /usr/local/include /usr/include)
+        if(SYSTEM_FFI_LIBRARY AND SYSTEM_FFI_INCLUDE)
+            add_library(libffi STATIC IMPORTED GLOBAL)
+            set_target_properties(libffi PROPERTIES
+                IMPORTED_LOCATION "${SYSTEM_FFI_LIBRARY}"
+            )
+            target_include_directories(libffi INTERFACE "${SYSTEM_FFI_INCLUDE}")
+            target_compile_definitions(libffi INTERFACE FFI_BUILDING)
+            set(LIBFFI_FOUND TRUE)
+            message(STATUS "libffi: using system library at ${SYSTEM_FFI_LIBRARY}")
+        endif()
     endif()
 endif()
 
 # Last resort: build from source (macOS only for now)
 if(NOT LIBFFI_FOUND AND APPLE AND NOT IOS)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libffi/src")
+        # Enable assembly language support
+        enable_language(ASM)
+
         # Generic sources
         set(LIBFFI_SOURCES
             libffi/src/closures.c
@@ -135,9 +163,9 @@ if(NOT LIBFFI_FOUND AND APPLE AND NOT IOS)
         # Architecture-specific sources
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
             # arm64 - use iOS sources which support arm64
+            set(LIBFFI_ASM_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/libffi/git_master/darwin_ios/src/aarch64/sysv_arm64.S")
             list(APPEND LIBFFI_SOURCES
                 libffi/git_master/darwin_ios/src/aarch64/ffi_arm64.c
-                libffi/git_master/darwin_ios/src/aarch64/sysv_arm64.S
             )
             set(LIBFFI_INCLUDE_DIRS
                 "${CMAKE_CURRENT_SOURCE_DIR}/libffi/git_master/darwin_ios/include"
@@ -147,21 +175,30 @@ if(NOT LIBFFI_FOUND AND APPLE AND NOT IOS)
             )
         else()
             # x86_64
+            set(LIBFFI_ASM_SOURCE
+                "${CMAKE_CURRENT_SOURCE_DIR}/libffi/src/x86/darwin.S"
+                "${CMAKE_CURRENT_SOURCE_DIR}/libffi/src/x86/darwin64.S"
+            )
             list(APPEND LIBFFI_SOURCES
-                libffi/src/x86/darwin.S
-                libffi/src/x86/darwin64.S
                 libffi/src/x86/ffi.c
                 libffi/src/x86/ffi64.c
             )
             set(LIBFFI_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/libffi/include_darwin")
         endif()
 
-        add_library(libffi STATIC ${LIBFFI_SOURCES})
+        add_library(libffi STATIC ${LIBFFI_SOURCES} ${LIBFFI_ASM_SOURCE})
+
+        # Set assembly file properties to ensure proper compilation
+        set_source_files_properties(${LIBFFI_ASM_SOURCE} PROPERTIES
+            LANGUAGE ASM
+            COMPILE_FLAGS "-x assembler-with-cpp"
+        )
+
         target_include_directories(libffi PUBLIC ${LIBFFI_INCLUDE_DIRS})
         target_compile_definitions(libffi PUBLIC FFI_BUILDING)
         openxtalk_add_thirdparty_library(libffi)
         set(LIBFFI_FOUND TRUE)
-        message(STATUS "libffi: building from source")
+        message(STATUS "libffi: building from source for ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
 endif()
 
@@ -219,9 +256,26 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libzip/src")
     openxtalk_add_thirdparty_library(libzip)
 endif()
 
-# libskia - 2D graphics (complex build, typically prebuilt)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libskia")
-    message(STATUS "libskia: expected to use prebuilt library")
+# libexpat - XML parsing library (needed by Skia)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libexpat/lib")
+    add_library(libexpat STATIC
+        libexpat/lib/xmlparse.c
+        libexpat/lib/xmlrole.c
+        libexpat/lib/xmltok.c
+        libexpat/lib/xmltok_impl.c
+        libexpat/lib/xmltok_ns.c
+    )
+    target_include_directories(libexpat PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libexpat>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libexpat/lib>
+    )
+    target_compile_definitions(libexpat PRIVATE HAVE_EXPAT_CONFIG_H)
+    openxtalk_add_thirdparty_library(libexpat)
+endif()
+
+# libskia - 2D graphics library (built from source)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libskia/src")
+    add_subdirectory(libskia)
 endif()
 
 # libcairo - 2D graphics (complex build, typically prebuilt)
