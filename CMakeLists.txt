@@ -22,6 +22,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libz/src")
         libz/src/compress.c
         libz/src/crc32.c
         libz/src/deflate.c
+        libz/src/gzclose.c
+        libz/src/gzlib.c
+        libz/src/gzread.c
+        libz/src/gzwrite.c
         libz/src/infback.c
         libz/src/inffast.c
         libz/src/inflate.c
@@ -234,14 +238,41 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libsqlite/src")
     openxtalk_add_thirdparty_library(libsqlite)
 endif()
 
-# libxml - XML parsing
+# libxml - XML parsing (libxml2)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libxml/src")
-    message(STATUS "libxml: using system or prebuilt library")
+    file(GLOB LIBXML_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libxml/src/*.c")
+    # Exclude test programs, xmllint, xmlcatalog, and trio files
+    list(FILTER LIBXML_SOURCES EXCLUDE REGEX "(test|run|xmllint|xmlcatalog|trio)[^/]*\\.c$")
+    add_library(libxml STATIC ${LIBXML_SOURCES})
+    target_include_directories(libxml
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libxml/include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/libxml/src
+    )
+    target_compile_definitions(libxml
+        PRIVATE
+            LIBXML_STATIC_FOR_DLL=1
+        PUBLIC
+            LIBXML_STATIC=1
+    )
+    target_link_libraries(libxml PRIVATE libz)
+    openxtalk_add_thirdparty_library(libxml)
 endif()
 
 # libxslt - XSLT transformation
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libxslt/src")
-    message(STATUS "libxslt: using system or prebuilt library")
+    file(GLOB LIBXSLT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libxslt/src/*.c")
+    add_library(libxslt STATIC ${LIBXSLT_SOURCES})
+    target_include_directories(libxslt
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libxslt/include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/libxslt/include/libxslt
+            ${CMAKE_CURRENT_SOURCE_DIR}/libxslt/src
+    )
+    target_link_libraries(libxslt PUBLIC libxml)
+    openxtalk_add_thirdparty_library(libxslt)
 endif()
 
 # libzip - ZIP archive support
